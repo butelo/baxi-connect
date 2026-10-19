@@ -1,0 +1,16 @@
+{
+  "name": "baxi-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "Assistant", "class_name": "Assistant" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Assistant"] }]
+}

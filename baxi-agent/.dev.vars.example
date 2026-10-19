@@ -1,0 +1,6 @@
+# Copy to .dev.vars for `npm run dev`. In production use `wrangler secret put`.
+TELEGRAM_BOT_TOKEN=123456:replace-with-botfather-token
+TELEGRAM_SECRET=change-me-to-a-long-random-string
+BAXI_REFRESH_TOKEN=replace-with-output-of-seed_token.py
+ALLOWED_CHAT_IDS=
+MODEL=@cf/zai-org/glm-4.7-flash
