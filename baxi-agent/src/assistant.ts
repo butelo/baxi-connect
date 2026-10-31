@@ -5,7 +5,15 @@ import { createRegistry, Harness, type ToolRegistration } from "@earendil-works/
 import { PiHarness } from "agents/harness/pi";
 import { createAI } from "agents/models/pi-ai";
 
-import { BaxiClient, flattenZones } from "./baxi";
+import {
+  BaxiClient,
+  flattenZones,
+  refreshTokens,
+  TOKEN_KEY,
+  TokenRefreshError,
+  type StoredToken,
+  type TokenSource,
+} from "./baxi";
 import type { Env } from "./env";
 import { sendChatAction, sendMessage, setReaction } from "./telegram";
 
@@ -24,6 +32,7 @@ Conversation:
 • /new — forget this conversation and start fresh
 • /new <note> — start fresh but keep a one-line note
 • /context — how much history I'm carrying
+• /id — your Telegram chat id (needed to allow another phone)
 
 I read before I write, so I'll tell you the real temperature and setpoint.`;
 
@@ -72,10 +81,36 @@ const SetModeParams = Type.Object({
   ),
 });
 
+/**
+ * One object holds the BDR token for the whole Worker. B2C rotates the refresh
+ * token on every use, so two objects refreshing from the same seed would
+ * invalidate each other's chain — every chat goes through this one instead.
+ */
+const TOKEN_VAULT = "baxi:token";
+
+/** Reads the token from the vault object; keeps this chat's old copy as a bridge. */
+class VaultTokenSource implements TokenSource {
+  constructor(
+    private readonly namespace: DurableObjectNamespace<Assistant>,
+    private readonly seed: string | undefined,
+    private readonly storage: DurableObjectStorage,
+  ) {}
+
+  async accessToken(): Promise<string> {
+    // Before the vault existed each chat kept its own token. Hand the live one
+    // over once, so deploying this does not invalidate the current session.
+    const legacy = await this.storage.get<StoredToken>(TOKEN_KEY);
+    const vault = this.namespace.get(this.namespace.idFromName(TOKEN_VAULT));
+    return vault.getAccessToken(this.seed, legacy);
+  }
+}
+
 export class Assistant extends Agent<Env> {
   readonly ai = createAI({ binding: this.env.AI });
   readonly registry = createRegistry();
-  readonly baxi = new BaxiClient(this.ctx.storage, this.env.BAXI_REFRESH_TOKEN);
+  readonly baxi = new BaxiClient(
+    new VaultTokenSource(this.env.Assistant, this.env.BAXI_REFRESH_TOKEN, this.ctx.storage),
+  );
 
   readonly harness = new PiHarness({
     harness: ({ storage, context }) => {
@@ -97,6 +132,57 @@ export class Assistant extends Agent<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.lifecycle.use(this.harness);
+  }
+
+  private refreshInFlight?: Promise<StoredToken>;
+
+  /**
+   * The single owner of the BDR token. Called by every chat's object, so the
+   * refresh happens once and the rotated token is persisted here, not per chat.
+   * `legacy` is a pre-vault token from the calling chat's own storage.
+   */
+  async getAccessToken(seed?: string, legacy?: StoredToken): Promise<string> {
+    const now = Math.floor(Date.now() / 1000);
+    const saved = await this.ctx.storage.get<StoredToken>(TOKEN_KEY);
+    if (saved?.access && saved.exp > now + 60) return saved.access;
+
+    // Newest first: the vault's own token, then whatever the calling chat kept
+    // before the vault existed, then the deploy-time seed.
+    const sources = [
+      ...new Set([saved?.refresh, legacy?.refresh, seed].filter((t): t is string => Boolean(t))),
+    ];
+    if (sources.length === 0) {
+      throw new Error(
+        "No Baxi credentials. Seed the BAXI_REFRESH_TOKEN secret (see README) and redeploy.",
+      );
+    }
+
+    // Concurrent callers share one refresh: rotating twice would burn a token.
+    this.refreshInFlight ??= this.refreshFrom(sources).finally(() => {
+      this.refreshInFlight = undefined;
+    });
+    const next = await this.refreshInFlight;
+    await this.ctx.storage.put(TOKEN_KEY, next);
+    return next.access;
+  }
+
+  /**
+   * Try each credential source in turn, but only move on when B2C says the
+   * token is revoked (400 invalid_grant) — that is what a `baxi.py login` on
+   * the laptop looks like from here, and the re-seeded secret is newer than
+   * whatever this object stored. Anything else must surface untouched.
+   */
+  private async refreshFrom(sources: string[]): Promise<StoredToken> {
+    let lastError: unknown;
+    for (const refresh of sources) {
+      try {
+        return await refreshTokens(refresh);
+      } catch (error) {
+        if (!(error instanceof TokenRefreshError) || error.status !== 400) throw error;
+        lastError = error;
+      }
+    }
+    throw lastError;
   }
 
   /** Called by the webhook. Returns immediately; the turn runs in the background. */
@@ -129,6 +215,11 @@ export class Assistant extends Agent<Env> {
             ? `Nueva conversación. Recordaré esto:\n${handoff}`
             : "Nueva conversación. Contexto anterior descartado.",
         );
+        return;
+      }
+
+      if (text.trim() === "/id") {
+        await sendMessage(token, chatId, `chat id: ${chatId}`);
         return;
       }
 

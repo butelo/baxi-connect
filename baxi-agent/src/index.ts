@@ -53,12 +53,24 @@ export default {
         await sendMessage(
           env.TELEGRAM_BOT_TOKEN,
           chatId,
-          `Not configured yet. Add this to the Worker:\n\nALLOWED_CHAT_IDS=${chatId}`,
+          `Not configured yet. Add this to the Worker:\n\nALLOWED_CHAT_IDS=${chatId}\n\n` +
+            `or run: ./tools/set_allowed.sh ${chatId}`,
         );
         return Response.json({ ok: true });
       }
       if (!allowed.includes(String(chatId))) {
-        return new Response("forbidden", { status: 403 });
+        // Silence reads as "the bot is broken", so answer once with the only
+        // thing the owner needs in order to let this person in. No model call,
+        // no heating access: the door stays shut until the id is configured.
+        await sendMessage(
+          env.TELEGRAM_BOT_TOKEN,
+          chatId,
+          `Este bot es privado: todavía no puedes controlar la calefacción.\n\n` +
+            `Tu chat id es ${chatId}\n` +
+            `Pásaselo a quien lo administre y te añadirá.\n\n` +
+            `Your chat id is ${chatId}`,
+        );
+        return Response.json({ ok: true });
       }
 
       // One Durable Object per Telegram chat: its own Pi session and token cache.

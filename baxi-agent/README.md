@@ -69,14 +69,25 @@ npx wrangler secret put BAXI_REFRESH_TOKEN   # from tools/seed_token.py
 ```
 
 **6. Claim your chat** — message the bot. If no chat is allowed yet it answers with its own
-`chat_id`; then:
+`chat_id`; then, from the repo root:
 
 ```bash
-npx wrangler secret put ALLOWED_CHAT_IDS   # paste the number it gave you
+./tools/set_allowed.sh 123456789        # the id the bot just gave you
 ```
 
-Everyone else gets a 403. This matters: a public bot without an allowlist lets strangers
-heat your flat.
+**7. Add a second phone** (a partner, a flatmate) — pass every id you want to keep:
+
+```bash
+./tools/set_allowed.sh 123456789 987654321
+```
+
+The script always sets the whole list (Cloudflare secrets are write-only, so there is
+nothing to read back), updates `baxi-agent/.dev.vars` for `npm run dev`, and pushes the
+secret. The id itself is one message away: anyone not on the list gets a short reply with
+their own `chat_id` and nothing else, and `/id` repeats it for allowed chats.
+
+Everyone else can find the bot, but cannot touch the heating. This matters: a public bot
+without an allowlist lets strangers heat your flat.
 
 ## Talking to it
 

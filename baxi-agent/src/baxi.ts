@@ -17,10 +17,63 @@ const API_BASE = "https://api.bdrthermea.net/Mobile/api";
 const API_KEY = "df605c5470d846fc91e848b1cc653ddf";
 const TOKEN_KEY = "baxi:token";
 
-interface StoredToken {
+/** Where the (single, shared) BDR token lives. */
+export { TOKEN_KEY };
+
+export interface StoredToken {
   access: string;
   refresh: string;
   exp: number; // unix seconds
+}
+
+/** Anything that can hand out a bearer token: the durable vault, in practice. */
+export interface TokenSource {
+  accessToken(): Promise<string>;
+}
+
+/** Token endpoint refusal, with the status kept so callers can tell 400 from a blip. */
+export class TokenRefreshError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "TokenRefreshError";
+  }
+}
+
+/**
+ * Exchange a refresh token for a new access token. B2C rotates the refresh
+ * token on every use, so the caller must persist the result.
+ */
+export async function refreshTokens(refresh: string): Promise<StoredToken> {
+  const res = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refresh,
+      client_id: CLIENT_ID,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new TokenRefreshError(
+      `Baxi token refresh failed (${res.status}). Re-seed BAXI_REFRESH_TOKEN with a fresh ` +
+        `\`python3 baxi.py login\`. Details: ${body.slice(0, 200)}`,
+      res.status,
+    );
+  }
+
+  const json = (await res.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+
+  return {
+    access: json.access_token,
+    refresh: json.refresh_token ?? refresh,
+    exp: Math.floor(Date.now() / 1000) + (json.expires_in ?? 3600),
+  };
 }
 
 export interface Zone {
@@ -81,58 +134,10 @@ export interface TimeProgram {
 }
 
 export class BaxiClient {
-  constructor(
-    private readonly storage: DurableObjectStorage,
-    private readonly seedRefresh?: string,
-  ) {}
-
-  private async accessToken(): Promise<string> {
-    const now = Math.floor(Date.now() / 1000);
-    const saved = await this.storage.get<StoredToken>(TOKEN_KEY);
-    if (saved?.access && saved.exp > now + 60) return saved.access;
-
-    const refresh = saved?.refresh ?? this.seedRefresh;
-    if (!refresh) {
-      throw new Error(
-        "No Baxi credentials. Seed the BAXI_REFRESH_TOKEN secret (see README) and redeploy.",
-      );
-    }
-
-    const res = await fetch(TOKEN_URL, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refresh,
-        client_id: CLIENT_ID,
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(
-        `Baxi token refresh failed (${res.status}). Re-seed BAXI_REFRESH_TOKEN with a fresh ` +
-          `\`python3 baxi.py login\`. Details: ${body.slice(0, 200)}`,
-      );
-    }
-
-    const json = (await res.json()) as {
-      access_token: string;
-      refresh_token?: string;
-      expires_in?: number;
-    };
-
-    const next: StoredToken = {
-      access: json.access_token,
-      refresh: json.refresh_token ?? refresh,
-      exp: now + (json.expires_in ?? 3600),
-    };
-    await this.storage.put(TOKEN_KEY, next);
-    return next.access;
-  }
+  constructor(private readonly tokens: TokenSource) {}
 
   private async api<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const token = await this.accessToken();
+    const token = await this.tokens.accessToken();
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
       "Ocp-Apim-Subscription-Key": API_KEY,

@@ -80,7 +80,8 @@ cd baxi-agent && npm install && npx wrangler deploy
 cd .. && WORKER_URL=https://<worker>.<subdomain>.workers.dev/telegram ./tools/setup_bot.sh
 ```
 
-Then message the bot: it tells you its own `chat_id`, which you put in `ALLOWED_CHAT_IDS`.
+Then message the bot: it tells you its own `chat_id`, which you allow with
+`./tools/set_allowed.sh <chat-id>` — pass more ids to let family phones in too.
 **Do this** — a public bot without an allowlist lets strangers heat your home.
 
 ## API notes
@@ -125,7 +126,7 @@ baxi-agent/          Cloudflare Worker + Durable Object + Pi harness
   src/index.ts       webhook, secret check, chat allowlist
   src/assistant.ts   Pi harness, system prompt, thermostat tools
   src/baxi.ts        token refresh + API, stored in the DO
-tools/               seed_token.py, wrangler wrapper, Telegram helpers
+tools/               seed_token.py, wrangler wrapper, set_allowed.sh, Telegram helpers
 ```
 
 ## Security
