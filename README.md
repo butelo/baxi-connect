@@ -43,6 +43,7 @@ python3 baxi.py login      # your Baxi/Remeha/De Dietrich app email + password
 python3 baxi.py status
 python3 baxi.py set 21.5                 # until next program step (program stays on)
 python3 baxi.py set 21.5 --mode manual   # hold, pausing the program
+python3 baxi.py on                       # turn on at 22.5 C, program stays on
 python3 baxi.py auto                     # back to the weekly program
 python3 baxi.py off                      # anti-frost
 python3 baxi.py status --json
@@ -52,6 +53,10 @@ python3 baxi.py status --json
 following the weekly program, and the new temperature lasts until the next switch point.
 Use `--mode manual` (or a tool's `mode: "manual"`) only when you want the program ignored
 indefinitely.
+
+`on` is the no-temperature shortcut: it re-enables the weekly program (so it also works from
+off/anti-frost) and applies 22.5 °C as a temporary override. The MCP tool `baxi_turn_on` and
+the Telegram bot's "enciende la calefacción" do the same.
 
 The password is used once, over TLS, and never stored. Only the OAuth refresh token is
 written, to `.baxi_token.json` (mode 600, gitignored).
@@ -66,7 +71,7 @@ written, to `.baxi_token.json` (mode 600, gitignored).
 }
 ```
 
-Tools: `baxi_status`, `baxi_list_zones`, `baxi_set_temperature`, `baxi_set_mode`.
+Tools: `baxi_status`, `baxi_list_zones`, `baxi_set_temperature`, `baxi_turn_on`, `baxi_set_mode`.
 
 ### Or run it as a Telegram bot on Cloudflare
 

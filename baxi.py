@@ -5,6 +5,7 @@
     python3 baxi.py status                # current temperatures, setpoint, mode
     python3 baxi.py set 21.5              # 21.5 C until the next program step
     python3 baxi.py set 21.5 --mode manual  # hold 21.5 C, ignoring the program
+    python3 baxi.py on                    # turn on at 22.5 C, program stays on
     python3 baxi.py off                   # anti-frost
     python3 baxi.py auto                  # back to the weekly program
 """
@@ -17,7 +18,13 @@ import json
 import os
 import sys
 
-from baxi_api import AuthError, BaxiCloud, BaxiError, DEFAULT_TOKEN_FILE
+from baxi_api import (
+    AuthError,
+    BaxiCloud,
+    BaxiError,
+    DEFAULT_ON_TEMPERATURE,
+    DEFAULT_TOKEN_FILE,
+)
 
 
 def _client(args) -> BaxiCloud:
@@ -117,6 +124,27 @@ def cmd_set(args) -> int:
     return 0
 
 
+def cmd_on(args) -> int:
+    cloud = _client(args)
+    zone = cloud.find_zone(args.zone)
+    z = zone["zone"]
+    temp = args.temperature
+    zmin, zmax = z.get("setPointMin"), z.get("setPointMax")
+    if zmin is not None and zmax is not None and not (zmin <= temp <= zmax):
+        print(
+            f"Refusing {temp}\u00b0C: this zone allows {zmin}-{zmax}\u00b0C",
+            file=sys.stderr,
+        )
+        return 2
+    program = args.program or z.get("activeHeatingClimateTimeProgramNumber") or 1
+    cloud.turn_on(z["climateZoneId"], temp, program)
+    print(
+        f"Heating on: {temp}\u00b0C until the next program change "
+        f"(program {program} stays on)."
+    )
+    return 0
+
+
 def cmd_off(args) -> int:
     cloud = _client(args)
     zone = cloud.find_zone(args.zone)
@@ -183,6 +211,16 @@ def build_parser() -> argparse.ArgumentParser:
         "manual: hold the temperature, pausing the program",
     )
     st.set_defaults(func=cmd_set)
+
+    on = sub.add_parser("on", parents=[common], help="turn the heating on (default 22.5 C)")
+    on.add_argument("--temperature", type=float, default=DEFAULT_ON_TEMPERATURE)
+    on.add_argument("--zone", type=int, default=0)
+    on.add_argument(
+        "--program",
+        type=int,
+        help="weekly program to re-enable (default: the zone's active program)",
+    )
+    on.set_defaults(func=cmd_on)
 
     off = sub.add_parser("off", parents=[common], help="turn the zone off (anti-frost)")
     off.add_argument("--zone", type=int, default=0)

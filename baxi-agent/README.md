@@ -12,8 +12,8 @@ Telegram ──► Worker /telegram ──► Durable Object (Pi Durable harness
 * **Pi Durable** (`PiHarness` from the Agents SDK) runs the agent loop — model calls,
   tool calls, retries, crash recovery. An evicted object wakes up and finishes the turn.
 * **The Durable Object** holds one Pi session per Telegram chat and the OAuth token.
-* **Tools** (`baxi_status`, `baxi_set_temperature`, `baxi_set_mode`) call the same BDR
-  cloud API the official app uses.
+* **Tools** (`baxi_status`, `baxi_turn_on`, `baxi_set_temperature`, `baxi_set_mode`) call the
+  same BDR cloud API the official app uses.
 
 ## Auth: a refresh token, not your password
 
@@ -91,9 +91,12 @@ without an allowlist lets strangers heat your flat.
 
 ## Talking to it
 
-> ¿a cuánto está el salón? · ponlo a 21 · sube dos grados · apágalo · vuelve al programa
+> ¿a cuánto está el salón? · enciende la calefacción · ponlo a 21 · sube dos grados · apágalo · vuelve al programa
 
 The agent reads `baxi_status` before writing, so the numbers it quotes are real.
+
+"enciende la calefacción" / "turn the heating on" with no temperature turns it on at **22.5 °C**
+while keeping the weekly program active, so it turns itself down again at the next switch point.
 
 Temperature changes default to a **temporary override**: the weekly program stays on and the
 new setpoint holds until the next switch point. Say "manual" (or "para siempre") if you want

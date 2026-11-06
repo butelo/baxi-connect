@@ -40,6 +40,9 @@ API_KEY = "df605c5470d846fc91e848b1cc653ddf"  # Ocp-Apim-Subscription-Key baked 
 
 DEFAULT_TOKEN_FILE = Path(__file__).resolve().parent / ".baxi_token.json"
 
+#: Setpoint used by `turn_on` when the user does not name a temperature.
+DEFAULT_ON_TEMPERATURE = 22.5
+
 
 class BaxiError(RuntimeError):
     """An error talking to the Baxi/BDR cloud."""
@@ -346,6 +349,21 @@ class BaxiCloud:
     def set_off(self, zone_id: str) -> None:
         """Anti-frost / off."""
         self._api("POST", f"/climate-zones/{zone_id}/modes/anti-frost")
+
+    def turn_on(
+        self,
+        zone_id: str,
+        temperature: float = DEFAULT_ON_TEMPERATURE,
+        program_id: int = 1,
+    ) -> None:
+        """Turn the zone on and bump it to `temperature` without leaving the program.
+
+        A temperature write alone does nothing while the zone is off/anti-frost,
+        so re-enable the weekly schedule first, then apply a temporary override.
+        The program takes over again at the next switch point.
+        """
+        self.set_schedule(zone_id, program_id)
+        self.set_override(zone_id, temperature)
 
     def set_fireplace(self, zone_id: str, enabled: bool) -> None:
         self._api(

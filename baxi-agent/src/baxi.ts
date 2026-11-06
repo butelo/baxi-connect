@@ -185,6 +185,18 @@ export class BaxiClient {
     return this.api("POST", `/climate-zones/${zoneId}/modes/anti-frost`);
   }
 
+  /**
+   * Turn the zone on and bump it to `temperature` without leaving the program.
+   *
+   * Writing a temperature alone does nothing while the zone is off/anti-frost,
+   * so re-enable the weekly schedule first, then apply a temporary override. The
+   * program takes over again at the next switch point.
+   */
+  async turnOn(zoneId: string, temperature: number, programId = 1): Promise<void> {
+    await this.setSchedule(zoneId, programId);
+    await this.setOverride(zoneId, temperature);
+  }
+
   setHotWater(zoneId: string, comfort?: number, reduced?: number): Promise<unknown> {
     const body: Record<string, number> = {};
     if (comfort !== undefined) body.comfortSetpoint = comfort;

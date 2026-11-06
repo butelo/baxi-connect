@@ -27,7 +27,13 @@ import sys
 import traceback
 from typing import Any, Dict, Optional
 
-from baxi_api import AuthError, BaxiCloud, BaxiError, DEFAULT_TOKEN_FILE
+from baxi_api import (
+    AuthError,
+    BaxiCloud,
+    BaxiError,
+    DEFAULT_ON_TEMPERATURE,
+    DEFAULT_TOKEN_FILE,
+)
 
 SERVER_INFO = {"name": "baxi-thermostat", "version": "1.0.0"}
 PROTOCOL_VERSION = "2024-11-05"
@@ -51,6 +57,12 @@ def cloud() -> BaxiCloud:
 def _zone_or_raise(c: BaxiCloud, zone_index: int) -> Dict[str, Any]:
     entry = c.find_zone(zone_index)
     return entry
+
+
+def _check_temperature(z: Dict[str, Any], temp: float) -> None:
+    lo, hi = z.get("setPointMin"), z.get("setPointMax")
+    if lo is not None and hi is not None and not (lo <= temp <= hi):
+        raise BaxiError(f"Temperature must be between {lo} and {hi} C for this zone")
 
 
 def tool_status(args: Dict[str, Any]) -> str:
@@ -99,9 +111,7 @@ def tool_set_temperature(args: Dict[str, Any]) -> str:
     c = cloud()
     entry = _zone_or_raise(c, zone_index)
     z = entry["zone"]
-    lo, hi = z.get("setPointMin"), z.get("setPointMax")
-    if lo is not None and hi is not None and not (lo <= temp <= hi):
-        raise BaxiError(f"Temperature must be between {lo} and {hi} C for this zone")
+    _check_temperature(z, temp)
     zone_id = z["climateZoneId"]
     if mode == "manual":
         c.set_manual(zone_id, temp)
@@ -110,6 +120,21 @@ def tool_set_temperature(args: Dict[str, Any]) -> str:
         c.set_override(zone_id, temp)
         action = f"temporary override -> {temp} C (until the next program change, program stays on)"
     return f"OK: {action} in zone '{z.get('name')}' ({z.get('climateZoneId')})."
+
+
+def tool_turn_on(args: Dict[str, Any]) -> str:
+    temp = float(args.get("temperature", DEFAULT_ON_TEMPERATURE))
+    zone_index = int(args.get("zone", 0))
+    c = cloud()
+    entry = _zone_or_raise(c, zone_index)
+    z = entry["zone"]
+    _check_temperature(z, temp)
+    program = int(args.get("program") or z.get("activeHeatingClimateTimeProgramNumber") or 1)
+    c.turn_on(z["climateZoneId"], temp, program)
+    return (
+        f"OK: heating on in zone '{z.get('name')}' -> {temp} C until the next program "
+        f"change (program {program} stays on)."
+    )
 
 
 def tool_set_mode(args: Dict[str, Any]) -> str:
@@ -168,6 +193,31 @@ TOOLS = [
             "additionalProperties": False,
         },
         "handler": tool_set_temperature,
+    },
+    {
+        "name": "baxi_turn_on",
+        "description": (
+            "Turn the heating on when it is off or idle. Uses 22.5 C by default and keeps the "
+            "weekly program active: the setpoint is a temporary override, so the program takes "
+            "over again at the next switch point. Use this when the user says 'turn on the "
+            "heating' / 'enciende la calefaccion' without naming a temperature."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "temperature": {
+                    "type": "number",
+                    "description": f"Override temperature in Celsius (default {DEFAULT_ON_TEMPERATURE})",
+                },
+                "zone": {"type": "integer", "default": 0, "description": "Zone index"},
+                "program": {
+                    "type": "integer",
+                    "description": "Weekly program to re-enable (default: the zone's active program)",
+                },
+            },
+            "additionalProperties": False,
+        },
+        "handler": tool_turn_on,
     },
     {
         "name": "baxi_set_mode",

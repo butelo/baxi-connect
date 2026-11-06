@@ -19,10 +19,14 @@ import { sendChatAction, sendMessage, setReaction } from "./telegram";
 
 const DEFAULT_MODEL = "@cf/zai-org/glm-4.7-flash";
 
+/** Setpoint used when the user says "turn the heating on" without a temperature. */
+const DEFAULT_ON_TEMPERATURE = 22.5;
+
 const HELP = `I control the BAXI heating in your flat.
 
 Try:
 • ¿a cuánto está el salón?  /  what's the living room at?
+• enciende la calefacción  /  turn it on  →  22.5 °C, program stays on
 • ponlo a 21  /  set it to 21
 • sube dos grados
 • apágalo  /  turn it off
@@ -39,8 +43,9 @@ I read before I write, so I'll tell you the real temperature and setpoint.`;
 const SYSTEM_PROMPT = `You control a BAXI Connect heating system in the user's home, through the BDR Thermea cloud.
 
 Rules:
-- Temperatures are Celsius. Comfort is roughly 19-22 C; never aim below 5 (frost) or above 30.
+- Temperatures are Celsius. Comfort is roughly 19-23 C; never aim below 5 (frost) or above 30.
 - Always call baxi_status before changing anything: you need the real zoneId and the current room temperature.
+- To turn the heating on without the user naming a temperature ("enciende la calefacción", "turn the heating on", "pon la calefacción"), call baxi_turn_on with no arguments: it uses 22.5 C, re-enables the weekly program and leaves a temporary override, so the program takes over (and turns it down) at the next switch point. Do not ask for a temperature. If they do name one, use baxi_set_temperature instead.
 - Change temperature with baxi_set_temperature. The default, mode="override", changes the setpoint until the next program step and keeps the thermostat on its weekly program (auto). Only use mode="manual" when the user explicitly wants to leave the program and hold a temperature indefinitely ("manual", "para siempre", "hasta que te diga", "ignore the program"). For everything else — including "keep it at 20" — omit mode so the program stays on.
 - baxi_set_mode with "auto" returns to the weekly program, "off" is anti-frost.
 - When asked about the schedule, relay the baxi_schedule text block verbatim. Do not build tables, do not merge days, do not infer hours the tool did not list (gaps between switch points are not yours to fill).
@@ -61,6 +66,15 @@ const SetTemperatureParams = Type.Object({
       description:
         "override (default) = until next program step, keeps the weekly program active; " +
         "manual = hold indefinitely, pauses the program",
+    }),
+  ),
+  zoneId: Type.Optional(Type.String({ description: "Zone id from baxi_status" })),
+});
+
+const TurnOnParams = Type.Object({
+  temperature: Type.Optional(
+    Type.Number({
+      description: `Override temperature in Celsius (default ${DEFAULT_ON_TEMPERATURE})`,
     }),
   ),
   zoneId: Type.Optional(Type.String({ description: "Zone id from baxi_status" })),
@@ -333,6 +347,38 @@ export class Assistant extends Agent<Env> {
       },
     };
 
+    const turnOn: ToolRegistration<typeof TurnOnParams> = {
+      name: "baxi_turn_on",
+      description:
+        "Turn the heating on. Uses 22.5 C by default, re-enables the weekly program and applies " +
+        "that temperature as a temporary override, so the program takes over again at the next " +
+        "switch point. Use this when the user asks to turn the heating on without a temperature.",
+      parameters: TurnOnParams,
+      replay: "safe",
+      execute: async ({ temperature = DEFAULT_ON_TEMPERATURE, zoneId }) => {
+        const target = await this.resolveZone(zoneId);
+        const lo = target.zone.setPointMin ?? 5;
+        const hi = target.zone.setPointMax ?? 30;
+        if (temperature < lo || temperature > hi) {
+          throw new Error(`Temperature must be between ${lo} and ${hi} C for this zone.`);
+        }
+        const id = target.zone.climateZoneId;
+        const program = target.zone.activeHeatingClimateTimeProgramNumber ?? 1;
+        await this.baxi.turnOn(id, temperature, program);
+        const label = target.zone.name?.trim() || "zone";
+        return {
+          output: [
+            {
+              type: "text",
+              text:
+                `Heating on: ${label} set to ${temperature} C as a temporary override; ` +
+                `weekly program ${program} stays active and takes over at the next switch point.`,
+            },
+          ],
+        };
+      },
+    };
+
     const setTemperature: ToolRegistration<typeof SetTemperatureParams> = {
       name: "baxi_set_temperature",
       description:
@@ -480,6 +526,6 @@ export class Assistant extends Agent<Env> {
       },
     };
 
-    return [status, setTemperature, setMode, schedule, setSwitchPoint];
+    return [status, turnOn, setTemperature, setMode, schedule, setSwitchPoint];
   }
 }
