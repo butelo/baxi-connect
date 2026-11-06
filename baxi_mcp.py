@@ -94,7 +94,7 @@ def tool_zones(args: Dict[str, Any]) -> str:
 
 def tool_set_temperature(args: Dict[str, Any]) -> str:
     temp = float(args["temperature"])
-    mode = args.get("mode", "manual")
+    mode = args.get("mode", "override")
     zone_index = int(args.get("zone", 0))
     c = cloud()
     entry = _zone_or_raise(c, zone_index)
@@ -103,12 +103,12 @@ def tool_set_temperature(args: Dict[str, Any]) -> str:
     if lo is not None and hi is not None and not (lo <= temp <= hi):
         raise BaxiError(f"Temperature must be between {lo} and {hi} C for this zone")
     zone_id = z["climateZoneId"]
-    if mode == "override":
-        c.set_override(zone_id, temp)
-        action = f"temporary override -> {temp} C (until the next program change)"
-    else:
+    if mode == "manual":
         c.set_manual(zone_id, temp)
-        action = f"manual hold -> {temp} C"
+        action = f"manual hold -> {temp} C (program paused)"
+    else:
+        c.set_override(zone_id, temp)
+        action = f"temporary override -> {temp} C (until the next program change, program stays on)"
     return f"OK: {action} in zone '{z.get('name')}' ({z.get('climateZoneId')})."
 
 
@@ -153,15 +153,15 @@ TOOLS = [
     {
         "name": "baxi_set_temperature",
         "description": (
-            "Set the target temperature of a heating zone. Use mode 'override' to keep the "
-            "weekly schedule (temporary until the next programmed change) or 'manual' to hold "
-            "the temperature indefinitely."
+            "Set the target temperature of a heating zone. Default mode 'override' changes the "
+            "temperature until the next programmed step, keeping the weekly program active; "
+            "use 'manual' only to hold the temperature indefinitely (pauses the program)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "temperature": {"type": "number", "description": "Target in Celsius"},
-                "mode": {"type": "string", "enum": ["manual", "override"], "default": "manual"},
+                "mode": {"type": "string", "enum": ["manual", "override"], "default": "override"},
                 "zone": {"type": "integer", "default": 0, "description": "Zone index"},
             },
             "required": ["temperature"],

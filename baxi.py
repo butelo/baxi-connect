@@ -3,8 +3,8 @@
 
     python3 baxi.py login                 # once, stores a refresh token locally
     python3 baxi.py status                # current temperatures, setpoint, mode
-    python3 baxi.py set 21.5              # hold 21.5 C
-    python3 baxi.py set 21.5 --mode override
+    python3 baxi.py set 21.5              # 21.5 C until the next program step
+    python3 baxi.py set 21.5 --mode manual  # hold 21.5 C, ignoring the program
     python3 baxi.py off                   # anti-frost
     python3 baxi.py auto                  # back to the weekly program
 """
@@ -105,12 +105,15 @@ def cmd_set(args) -> int:
             file=sys.stderr,
         )
         return 2
-    if args.mode == "override":
-        cloud.set_override(zone_id, args.temperature)
-        print(f"Temporary override set to {args.temperature}\u00b0C until the next program change.")
-    else:
+    if args.mode == "manual":
         cloud.set_manual(zone_id, args.temperature)
-        print(f"Manual mode: holding {args.temperature}\u00b0C.")
+        print(f"Manual mode: holding {args.temperature}\u00b0C, the program is paused.")
+    else:
+        cloud.set_override(zone_id, args.temperature)
+        print(
+            f"Temporary override set to {args.temperature}\u00b0C until the next "
+            f"program change (program stays on)."
+        )
     return 0
 
 
@@ -172,7 +175,13 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("set", parents=[common], help="set a temperature")
     st.add_argument("temperature", type=float)
     st.add_argument("--zone", type=int, default=0)
-    st.add_argument("--mode", choices=["manual", "override"], default="manual")
+    st.add_argument(
+        "--mode",
+        choices=["manual", "override"],
+        default="override",
+        help="override (default): until the next program step, keeping the program on; "
+        "manual: hold the temperature, pausing the program",
+    )
     st.set_defaults(func=cmd_set)
 
     off = sub.add_parser("off", parents=[common], help="turn the zone off (anti-frost)")

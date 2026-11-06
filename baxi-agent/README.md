@@ -95,6 +95,10 @@ without an allowlist lets strangers heat your flat.
 
 The agent reads `baxi_status` before writing, so the numbers it quotes are real.
 
+Temperature changes default to a **temporary override**: the weekly program stays on and the
+new setpoint holds until the next switch point. Say "manual" (or "para siempre") if you want
+to leave the program and hold a temperature indefinitely.
+
 ## Model
 
 `MODEL` defaults to `@cf/zai-org/glm-4.7-flash` (Workers AI). Any Workers AI model works;

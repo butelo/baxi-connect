@@ -41,12 +41,17 @@ Python ≥ 3.8, standard library only.
 ```bash
 python3 baxi.py login      # your Baxi/Remeha/De Dietrich app email + password
 python3 baxi.py status
-python3 baxi.py set 21.5                 # hold a temperature
-python3 baxi.py set 21.5 --mode override # until the next program step
+python3 baxi.py set 21.5                 # until next program step (program stays on)
+python3 baxi.py set 21.5 --mode manual   # hold, pausing the program
 python3 baxi.py auto                     # back to the weekly program
 python3 baxi.py off                      # anti-frost
 python3 baxi.py status --json
 ```
+
+`set` changes the setpoint with a **temporary override** by default: the thermostat keeps
+following the weekly program, and the new temperature lasts until the next switch point.
+Use `--mode manual` (or a tool's `mode: "manual"`) only when you want the program ignored
+indefinitely.
 
 The password is used once, over TLS, and never stored. Only the OAuth refresh token is
 written, to `.baxi_token.json` (mode 600, gitignored).
@@ -92,8 +97,8 @@ header and a Bearer token.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/homes/dashboard` | all state: zones, setpoint, mode, pressure, DHW |
-| POST | `/climate-zones/{id}/modes/manual` | hold a temperature |
-| POST | `/climate-zones/{id}/modes/temporary-override` | until next program step |
+| POST | `/climate-zones/{id}/modes/manual` | hold a temperature, pausing the program |
+| POST | `/climate-zones/{id}/modes/temporary-override` | until next program step, program stays on |
 | POST | `/climate-zones/{id}/modes/schedule` | follow a program (`heatingProgramId`) |
 | POST | `/climate-zones/{id}/modes/anti-frost` | off |
 | GET | `/climate-zones/{id}/time-programs/heating/{1..3}` | weekly program |

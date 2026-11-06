@@ -41,7 +41,7 @@ const SYSTEM_PROMPT = `You control a BAXI Connect heating system in the user's h
 Rules:
 - Temperatures are Celsius. Comfort is roughly 19-22 C; never aim below 5 (frost) or above 30.
 - Always call baxi_status before changing anything: you need the real zoneId and the current room temperature.
-- Change temperature with baxi_set_temperature. mode="override" lasts until the next program step; mode="manual" holds indefinitely. Use "override" for a quick nudge ("sube un poco"), "manual" when the user wants it held ("hasta que vuelva", "keep it at 20").
+- Change temperature with baxi_set_temperature. The default, mode="override", changes the setpoint until the next program step and keeps the thermostat on its weekly program (auto). Only use mode="manual" when the user explicitly wants to leave the program and hold a temperature indefinitely ("manual", "para siempre", "hasta que te diga", "ignore the program"). For everything else — including "keep it at 20" — omit mode so the program stays on.
 - baxi_set_mode with "auto" returns to the weekly program, "off" is anti-frost.
 - When asked about the schedule, relay the baxi_schedule text block verbatim. Do not build tables, do not merge days, do not infer hours the tool did not list (gaps between switch points are not yours to fill).
 - You CAN read and edit the weekly programs: call baxi_schedule first, then baxi_set_switchpoint to move a day/time to another activity. Activity temperatures (Home 15, Sleep 20, Evening 6, Work 19, Comfort 21) are fixed on the device and cannot be changed through the API — say so if asked. For an arbitrary temperature at a moment, use baxi_set_temperature instead, which overrides the program.
@@ -58,7 +58,9 @@ const SetTemperatureParams = Type.Object({
   temperature: Type.Number({ description: "Target temperature in Celsius" }),
   mode: Type.Optional(
     Type.Union([Type.Literal("manual"), Type.Literal("override")], {
-      description: "override = until next program step, manual = hold indefinitely",
+      description:
+        "override (default) = until next program step, keeps the weekly program active; " +
+        "manual = hold indefinitely, pauses the program",
     }),
   ),
   zoneId: Type.Optional(Type.String({ description: "Zone id from baxi_status" })),
@@ -334,8 +336,9 @@ export class Assistant extends Agent<Env> {
     const setTemperature: ToolRegistration<typeof SetTemperatureParams> = {
       name: "baxi_set_temperature",
       description:
-        "Set the target temperature of a heating zone. mode=override lasts until the next " +
-        "programmed step; mode=manual holds it indefinitely.",
+        "Set the target temperature of a heating zone. Defaults to mode=override: the weekly " +
+        "program stays active and the new setpoint holds until the next programmed step. " +
+        "Use mode=manual only when the user asks to hold it indefinitely; that pauses the program.",
       parameters: SetTemperatureParams,
       replay: "safe",
       execute: async ({ temperature, mode = "override", zoneId }) => {
